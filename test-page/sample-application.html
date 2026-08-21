@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>Sample Job Application (test page)</title>
+<style>
+  body { font-family: -apple-system, sans-serif; max-width: 640px; margin: 40px auto; color: #222; }
+  h1 { font-size: 20px; }
+  .job-description { background: #f5f5f5; border: 1px solid #ddd; padding: 16px; border-radius: 8px; margin-bottom: 24px; }
+  label { display: block; font-size: 13px; font-weight: 600; margin: 14px 0 4px; }
+  input, select { width: 100%; padding: 8px; font-size: 14px; border: 1px solid #ccc; border-radius: 4px; }
+  fieldset { border: 1px solid #ccc; border-radius: 6px; margin: 16px 0; padding: 10px 14px; }
+  .li-style { list-style: none; padding: 0; }
+  .lever-style { border: none; padding: 0; margin: 14px 0; }
+  .application-label { font-size: 13px; font-weight: 600; margin-bottom: 4px; }
+  .application-field input { width: 100%; padding: 8px; font-size: 14px; border: 1px solid #ccc; border-radius: 4px; }
+</style>
+</head>
+<body>
+  <h1>Sample Job Application (local test page — not a real site)</h1>
+
+  <div class="job-description">
+    <h2>Backend Engineer — Payments Team</h2>
+    <p>
+      We're looking for a Backend Engineer to help build our payments infrastructure.
+      You'll work with Python, PostgreSQL, and AWS to design reliable, high-throughput
+      services. Experience with distributed systems and API design is a plus. You'll
+      collaborate closely with product and design to ship features that directly affect
+      millions of transactions per day.
+    </p>
+  </div>
+
+  <form id="app-form">
+    <h2>Standard fields (labelled the normal way)</h2>
+    <label for="first_name">First Name</label>
+    <input type="text" id="first_name" />
+
+    <label for="last_name">Last Name</label>
+    <input type="text" id="last_name" />
+
+    <label for="email">Email</label>
+    <input type="email" id="email" />
+
+    <label for="phone">Phone</label>
+    <input type="tel" id="phone" />
+
+    <label for="city">City</label>
+    <input type="text" id="city" />
+
+    <label for="country">Country</label>
+    <select id="country">
+      <option value="">Select...</option>
+      <option value="US">United States</option>
+      <option value="CA">Canada</option>
+      <option value="IN">India</option>
+    </select>
+
+    <h2>Aria-label only fields (like Greenhouse's custom questions)</h2>
+    <input type="text" aria-label="LinkedIn Profile" />
+    <input type="text" aria-label="Website" />
+
+    <h2>Fieldset/legend radio groups</h2>
+    <fieldset>
+      <legend>Are you legally authorized to work in this country?</legend>
+      <label><input type="radio" name="work_auth" value="yes" /> Yes</label>
+      <label><input type="radio" name="work_auth" value="no" /> No</label>
+    </fieldset>
+
+    <fieldset>
+      <legend>Will you now or in the future require visa sponsorship?</legend>
+      <label><input type="radio" name="sponsorship" value="yes" /> Yes</label>
+      <label><input type="radio" name="sponsorship" value="no" /> No</label>
+    </fieldset>
+
+    <h2>Lever-style custom question (label is a sibling div, no &lt;label&gt; tag)</h2>
+    <div class="lever-style">
+      <div class="application-label">What is your GitHub profile?</div>
+      <div class="application-field"><input type="text" placeholder="Type your response" /></div>
+    </div>
+
+    <h2>File uploads (extension can't fill these — should be flagged)</h2>
+    <label for="resume">Resume</label>
+    <input type="file" id="resume" />
+    <label for="cover_letter">Cover Letter</label>
+    <input type="file" id="cover_letter" />
+
+    <p style="margin-top: 24px;"><em>(No submit button — this page is only for testing autofill, nothing is sent anywhere.)</em></p>
+  </form>
+</body>
+</html>

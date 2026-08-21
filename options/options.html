@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Profile Settings</title>
+  <link rel="stylesheet" href="options.css" />
+</head>
+<body>
+  <header>
+    <h1>Your Profile</h1>
+    <p class="subtitle">
+      Fill this in once. The extension reads it to autofill job applications
+      and to tailor your resume. Everything is stored only in this browser
+      (<code>chrome.storage.local</code>) &mdash; nothing is uploaded anywhere
+      except the two Claude API calls you trigger yourself from the popup.
+    </p>
+  </header>
+
+  <main>
+    <form id="profile-form">
+
+      <section>
+        <h2>Personal info</h2>
+        <div class="grid-2">
+          <label>First name <input type="text" name="firstName" /></label>
+          <label>Last name <input type="text" name="lastName" /></label>
+          <label>Email <input type="email" name="email" /></label>
+          <label>Phone <input type="tel" name="phone" /></label>
+          <label>Address line <input type="text" name="address" /></label>
+          <label>City <input type="text" name="city" /></label>
+          <label>State / Region <input type="text" name="state" /></label>
+          <label>ZIP / Postal code <input type="text" name="zip" /></label>
+          <label>Country <input type="text" name="country" /></label>
+          <label>LinkedIn URL <input type="url" name="linkedin" /></label>
+          <label>GitHub URL <input type="url" name="github" /></label>
+          <label>Portfolio / website URL <input type="url" name="website" /></label>
+        </div>
+      </section>
+
+      <section>
+        <h2>Work authorization</h2>
+        <p class="hint">Asked on almost every US application form.</p>
+        <div class="grid-2">
+          <label>Authorized to work in your country?
+            <select name="authorizedToWork">
+              <option value="">Prefer not to prefill</option>
+              <option value="Yes">Yes</option>
+              <option value="No">No</option>
+            </select>
+          </label>
+          <label>Will you now or in the future require sponsorship?
+            <select name="needsSponsorship">
+              <option value="">Prefer not to prefill</option>
+              <option value="Yes">Yes</option>
+              <option value="No">No</option>
+            </select>
+          </label>
+        </div>
+      </section>
+
+      <section>
+        <h2>Voluntary self-identification (EEO)</h2>
+        <p class="hint">
+          Optional demographic questions some US applications include. Stored locally only, never sent to Claude.
+          Leave as "Decline to answer" if you'd rather skip these.
+        </p>
+        <div class="grid-2">
+          <label>Gender
+            <select name="gender">
+              <option value="Decline to answer">Decline to answer</option>
+              <option value="Male">Male</option>
+              <option value="Female">Female</option>
+              <option value="Non-binary">Non-binary</option>
+            </select>
+          </label>
+          <label>Race / Ethnicity
+            <input type="text" name="raceEthnicity" placeholder="e.g. Asian, Hispanic/Latino..." />
+          </label>
+          <label>Veteran status
+            <select name="veteranStatus">
+              <option value="Decline to answer">Decline to answer</option>
+              <option value="I am not a veteran">I am not a veteran</option>
+              <option value="I am a veteran">I am a veteran</option>
+            </select>
+          </label>
+          <label>Disability status
+            <select name="disabilityStatus">
+              <option value="Decline to answer">Decline to answer</option>
+              <option value="Yes, I have a disability">Yes, I have a disability</option>
+              <option value="No, I do not have a disability">No, I do not have a disability</option>
+            </select>
+          </label>
+        </div>
+      </section>
+
+      <section>
+        <h2>Education</h2>
+        <div id="education-list"></div>
+        <button type="button" class="add-btn" id="add-education">+ Add education</button>
+      </section>
+
+      <section>
+        <h2>Experience</h2>
+        <div id="experience-list"></div>
+        <button type="button" class="add-btn" id="add-experience">+ Add job</button>
+      </section>
+
+      <section>
+        <h2>Skills</h2>
+        <label>Comma-separated list
+          <input type="text" name="skills" placeholder="Python, SQL, React, ..." />
+        </label>
+      </section>
+
+      <section>
+        <h2>Base resume text</h2>
+        <p class="hint">
+          Paste your full resume as plain text. This is the source material the
+          "Tailor resume" feature reframes for each job &mdash; it isn't rewritten here, only when you click that button.
+        </p>
+        <textarea name="resumeText" rows="14" placeholder="Paste your resume text here..."></textarea>
+      </section>
+
+      <section>
+        <h2>Claude API key</h2>
+        <p class="hint">
+          Needed only for resume tailoring (not for autofill). Get one at
+          <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener">console.anthropic.com</a>.
+          Stored locally in this browser; sent only to Anthropic's API when you click "Tailor resume."
+        </p>
+        <label>API key
+          <input type="password" name="apiKey" placeholder="sk-ant-..." autocomplete="off" />
+        </label>
+      </section>
+
+      <div class="save-row">
+        <button type="submit" id="save-btn">Save profile</button>
+        <span id="save-status"></span>
+      </div>
+    </form>
+  </main>
+
+  <template id="education-entry-template">
+    <div class="entry">
+      <button type="button" class="remove-btn">Remove</button>
+      <div class="grid-2">
+        <label>School <input type="text" data-field="school" /></label>
+        <label>Degree <input type="text" data-field="degree" placeholder="B.S., M.S., ..." /></label>
+        <label>Field of study <input type="text" data-field="field" /></label>
+        <label>GPA (optional) <input type="text" data-field="gpa" /></label>
+        <label>Start date <input type="text" data-field="startDate" placeholder="Aug 2019" /></label>
+        <label>End date <input type="text" data-field="endDate" placeholder="May 2023" /></label>
+      </div>
+    </div>
+  </template>
+
+  <template id="experience-entry-template">
+    <div class="entry">
+      <button type="button" class="remove-btn">Remove</button>
+      <div class="grid-2">
+        <label>Company <input type="text" data-field="company" /></label>
+        <label>Title <input type="text" data-field="title" /></label>
+        <label>Location <input type="text" data-field="location" /></label>
+        <label>Start date <input type="text" data-field="startDate" placeholder="Jun 2023" /></label>
+        <label>End date <input type="text" data-field="endDate" placeholder="Present" /></label>
+      </div>
+      <label>Bullet points (one per line)
+        <textarea data-field="bullets" rows="4" placeholder="Built X that did Y, resulting in Z%..."></textarea>
+      </label>
+    </div>
+  </template>
+
+  <script src="options.js"></script>
+</body>
+</html>

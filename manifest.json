@@ -1,0 +1,16 @@
+{
+  "manifest_version": 3,
+  "name": "Job Application Autofill + Resume Tailoring",
+  "version": "0.1.0",
+  "description": "Fills job application forms from your saved profile and tailors your resume to a job posting using Claude.",
+  "permissions": ["storage", "activeTab", "scripting"],
+  "host_permissions": ["https://api.anthropic.com/*"],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "action": {
+    "default_popup": "popup/popup.html"
+  },
+  "options_page": "options/options.html"
+}
