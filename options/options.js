@@ -1,6 +1,19 @@
 // chrome.storage.local is a small key-value database built into the browser,
 // scoped to this extension only. Unlike localStorage it works from the
 // background service worker too, and survives until you clear extension data.
+//
+// Multi-profile support: everything below now reads/writes through
+// lib/profile-store.js instead of a single `profile` key directly, so the
+// same profile data can't drift out of sync with what the popup's switcher
+// and background.js (for resume tailoring) see.
+
+import {
+  loadProfiles,
+  saveProfile,
+  createProfile,
+  deleteProfile,
+  setActiveProfile,
+} from "../lib/profile-store.js";
 
 const form = document.getElementById("profile-form");
 const educationList = document.getElementById("education-list");
@@ -8,6 +21,12 @@ const experienceList = document.getElementById("experience-list");
 const educationTemplate = document.getElementById("education-entry-template");
 const experienceTemplate = document.getElementById("experience-entry-template");
 const saveStatus = document.getElementById("save-status");
+const profileSelect = document.getElementById("profile-select");
+const profileNameInput = document.getElementById("profile-name");
+const newProfileBtn = document.getElementById("new-profile-btn");
+const deleteProfileBtn = document.getElementById("delete-profile-btn");
+
+let currentProfileId = null;
 
 function addEntry(listEl, template, values = {}) {
   const node = template.content.cloneNode(true);
@@ -37,36 +56,59 @@ function collectEntries(listEl) {
   });
 }
 
-document.getElementById("add-education").addEventListener("click", () => addEntry(educationList, educationTemplate));
-document.getElementById("add-experience").addEventListener("click", () => addEntry(experienceList, experienceTemplate));
-
-function loadProfile() {
-  chrome.storage.local.get(["profile", "anthropicApiKey"], (data) => {
-    const profile = data.profile || {};
-
-    for (const [key, value] of Object.entries(profile)) {
-      const field = form.elements.namedItem(key);
-      if (field && typeof value === "string") field.value = value;
-    }
-
-    if (Array.isArray(profile.skills)) {
-      form.elements.namedItem("skills").value = profile.skills.join(", ");
-    }
-
-    (profile.education || []).forEach((entry) => addEntry(educationList, educationTemplate, entry));
-    (profile.experience || []).forEach((entry) => addEntry(experienceList, experienceTemplate, entry));
-
-    if (data.anthropicApiKey) {
-      form.elements.namedItem("apiKey").value = data.anthropicApiKey;
-    }
-  });
+function clearForm() {
+  form.reset();
+  educationList.innerHTML = "";
+  experienceList.innerHTML = "";
 }
 
-form.addEventListener("submit", (event) => {
-  event.preventDefault();
+// Renders one profile's data into the form. Doesn't touch the API key field
+// — that's global, loaded/saved separately from the profile switch.
+function renderProfileIntoForm(profile) {
+  clearForm();
+  profileNameInput.value = profile.name || "";
 
+  for (const [key, value] of Object.entries(profile)) {
+    const field = form.elements.namedItem(key);
+    if (field && typeof value === "string") field.value = value;
+  }
+
+  if (Array.isArray(profile.skills)) {
+    form.elements.namedItem("skills").value = profile.skills.join(", ");
+  }
+
+  (profile.education || []).forEach((entry) => addEntry(educationList, educationTemplate, entry));
+  (profile.experience || []).forEach((entry) => addEntry(experienceList, experienceTemplate, entry));
+}
+
+function populateProfileSelect(profiles, activeProfileId) {
+  profileSelect.innerHTML = "";
+  for (const [id, profile] of Object.entries(profiles)) {
+    const option = document.createElement("option");
+    option.value = id;
+    option.textContent = profile.name || "(unnamed profile)";
+    profileSelect.appendChild(option);
+  }
+  profileSelect.value = activeProfileId;
+  deleteProfileBtn.disabled = Object.keys(profiles).length <= 1;
+}
+
+async function loadAndRenderActiveProfile() {
+  const { profiles, activeProfileId } = await loadProfiles();
+  currentProfileId = activeProfileId;
+  populateProfileSelect(profiles, activeProfileId);
+  renderProfileIntoForm(profiles[activeProfileId]);
+}
+
+async function loadApiKey() {
+  const { anthropicApiKey } = await chrome.storage.local.get(["anthropicApiKey"]);
+  if (anthropicApiKey) form.elements.namedItem("apiKey").value = anthropicApiKey;
+}
+
+function profileFromForm() {
   const formData = new FormData(form);
-  const profile = {
+  return {
+    name: profileNameInput.value.trim() || "Untitled profile",
     firstName: formData.get("firstName")?.trim() || "",
     lastName: formData.get("lastName")?.trim() || "",
     email: formData.get("email")?.trim() || "",
@@ -90,13 +132,63 @@ form.addEventListener("submit", (event) => {
     education: collectEntries(educationList),
     experience: collectEntries(experienceList),
   };
+}
 
-  const apiKey = formData.get("apiKey")?.trim() || "";
+document.getElementById("add-education").addEventListener("click", () => addEntry(educationList, educationTemplate));
+document.getElementById("add-experience").addEventListener("click", () => addEntry(experienceList, experienceTemplate));
 
-  chrome.storage.local.set({ profile, anthropicApiKey: apiKey }, () => {
-    saveStatus.textContent = "Saved.";
-    setTimeout(() => (saveStatus.textContent = ""), 2500);
-  });
+profileSelect.addEventListener("change", async () => {
+  const { profiles } = await loadProfiles();
+  currentProfileId = profileSelect.value;
+  await setActiveProfile(currentProfileId);
+  renderProfileIntoForm(profiles[currentProfileId]);
 });
 
-loadProfile();
+newProfileBtn.addEventListener("click", async () => {
+  const name = prompt("Name for the new profile (e.g. \"Backend roles\"):", "New profile");
+  if (name === null) return; // cancelled
+  const id = await createProfile(name.trim() || "New profile");
+  const { profiles } = await loadProfiles();
+  currentProfileId = id;
+  populateProfileSelect(profiles, id);
+  renderProfileIntoForm(profiles[id]);
+  saveStatus.textContent = "New profile created — fill it in and click Save.";
+  setTimeout(() => (saveStatus.textContent = ""), 3000);
+});
+
+deleteProfileBtn.addEventListener("click", async () => {
+  const { profiles } = await loadProfiles();
+  const name = profiles[currentProfileId]?.name || "this profile";
+  if (!confirm(`Delete "${name}"? This can't be undone.`)) return;
+  try {
+    const newActiveId = await deleteProfile(currentProfileId);
+    currentProfileId = newActiveId;
+    const { profiles: remaining } = await loadProfiles();
+    populateProfileSelect(remaining, newActiveId);
+    renderProfileIntoForm(remaining[newActiveId]);
+    saveStatus.textContent = "Deleted.";
+    setTimeout(() => (saveStatus.textContent = ""), 2500);
+  } catch (error) {
+    alert(error.message);
+  }
+});
+
+form.addEventListener("submit", async (event) => {
+  event.preventDefault();
+
+  const profile = profileFromForm();
+  const apiKey = new FormData(form).get("apiKey")?.trim() || "";
+
+  await saveProfile(currentProfileId, profile);
+  await chrome.storage.local.set({ anthropicApiKey: apiKey });
+
+  // Reflect a renamed profile in the switcher immediately.
+  const { profiles, activeProfileId } = await loadProfiles();
+  populateProfileSelect(profiles, activeProfileId);
+
+  saveStatus.textContent = "Saved.";
+  setTimeout(() => (saveStatus.textContent = ""), 2500);
+});
+
+loadAndRenderActiveProfile();
+loadApiKey();

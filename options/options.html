@@ -17,6 +17,27 @@
   </header>
 
   <main>
+    <section id="profile-switcher">
+      <h2>Profiles</h2>
+      <p class="hint">
+        Keep separate profiles for different flavors of role &mdash; e.g. a
+        "Backend roles" profile with a backend-focused resume and skills, and
+        a "Frontend roles" profile with a different one. The active profile
+        (chosen here or from the popup) is what "Fill this page" and "Tailor
+        resume" use. The Claude API key above applies to every profile.
+      </p>
+      <div class="profile-bar">
+        <label>Active profile
+          <select id="profile-select"></select>
+        </label>
+        <button type="button" class="add-btn" id="new-profile-btn">+ New profile</button>
+        <button type="button" id="delete-profile-btn" class="danger-btn">Delete this profile</button>
+      </div>
+      <label>Profile name
+        <input type="text" id="profile-name" placeholder="e.g. Backend roles" />
+      </label>
+    </section>
+
     <form id="profile-form">
 
       <section>
@@ -170,6 +191,6 @@
     </div>
   </template>
 
-  <script src="options.js"></script>
+  <script type="module" src="options.js"></script>
 </body>
 </html>

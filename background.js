@@ -6,13 +6,15 @@
 // the job-application page's own JavaScript.
 
 import { tailorResume } from "./lib/claude-api.js";
+import { getActiveProfile } from "./lib/profile-store.js";
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message?.type !== "TAILOR_RESUME") return false;
 
   (async () => {
     try {
-      const { profile, anthropicApiKey } = await chrome.storage.local.get(["profile", "anthropicApiKey"]);
+      const { anthropicApiKey } = await chrome.storage.local.get(["anthropicApiKey"]);
+      const { profile } = await getActiveProfile();
       const tailored = await tailorResume({
         apiKey: anthropicApiKey,
         resumeText: profile?.resumeText,
