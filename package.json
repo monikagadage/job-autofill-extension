@@ -1,0 +1,13 @@
+{
+  "name": "job-autofill-extension",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Dev-only tooling (test runner) for the Job Application Autofill + Resume Tailoring Chrome extension. The extension itself has no build step and no runtime dependencies.",
+  "scripts": {
+    "test": "jest"
+  },
+  "devDependencies": {
+    "jest": "^29.7.0",
+    "jest-environment-jsdom": "^29.7.0"
+  }
+}
