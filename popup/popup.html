@@ -8,13 +8,26 @@
 <body>
   <h1>Job Autofill</h1>
 
+  <label id="profile-picker">
+    Active profile
+    <select id="profile-select"></select>
+  </label>
+
   <button id="fill-btn" class="primary">Fill this page</button>
   <button id="tailor-btn" class="secondary">Tailor resume for this job</button>
 
   <div id="status" class="status"></div>
 
+  <details id="run-log">
+    <summary>Field detection log</summary>
+    <div id="run-log-body">
+      <p class="hint">Click "Fill this page" to see what was detected.</p>
+    </div>
+    <button type="button" id="copy-log-btn" class="secondary" disabled>Copy log</button>
+  </details>
+
   <a href="#" id="open-options">Edit profile / API key</a>
 
-  <script src="popup.js"></script>
+  <script type="module" src="popup.js"></script>
 </body>
 </html>

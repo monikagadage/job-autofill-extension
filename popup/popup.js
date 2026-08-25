@@ -1,7 +1,10 @@
+import { loadProfiles, getActiveProfile, setActiveProfile } from "../lib/profile-store.js";
+
 const CONTENT_FILES = [
   "content/field-matcher.js",
   "content/site-adapters/greenhouse.js",
   "content/site-adapters/lever.js",
+  "content/site-adapters/linkedin.js",
   "content/combobox-filler.js",
   "content/repeater-filler.js",
   "content/content.js",
@@ -10,6 +13,11 @@ const CONTENT_FILES = [
 const statusEl = document.getElementById("status");
 const fillBtn = document.getElementById("fill-btn");
 const tailorBtn = document.getElementById("tailor-btn");
+const profileSelect = document.getElementById("profile-select");
+const runLogBody = document.getElementById("run-log-body");
+const copyLogBtn = document.getElementById("copy-log-btn");
+
+let lastFieldLog = null;
 
 function setStatus(text, kind) {
   statusEl.textContent = text;
@@ -30,12 +38,104 @@ async function injectContentScripts(tabId) {
 }
 
 async function getProfile() {
-  const { profile } = await chrome.storage.local.get(["profile"]);
+  const { profile } = await getActiveProfile();
   if (!profile || (!profile.firstName && !profile.email)) {
-    throw new Error("No profile saved yet. Click \"Edit profile / API key\" below and fill it in first.");
+    throw new Error("The active profile is empty. Click \"Edit profile / API key\" below and fill it in first.");
   }
   return profile;
 }
+
+// --- Profile switcher -------------------------------------------------
+
+async function populateProfileSelect() {
+  const { profiles, activeProfileId } = await loadProfiles();
+  profileSelect.innerHTML = "";
+  for (const [id, profile] of Object.entries(profiles)) {
+    const option = document.createElement("option");
+    option.value = id;
+    option.textContent = profile.name || "(unnamed profile)";
+    profileSelect.appendChild(option);
+  }
+  profileSelect.value = activeProfileId;
+}
+
+profileSelect.addEventListener("change", async () => {
+  await setActiveProfile(profileSelect.value);
+  setStatus(`Switched to "${profileSelect.selectedOptions[0].textContent}".`);
+});
+
+// --- Field detection log ------------------------------------------------
+
+const CONFIDENCE_LABEL = { high: "high confidence", medium: "medium confidence", low: "low confidence", none: "" };
+
+function renderRunLog(fieldLog) {
+  lastFieldLog = fieldLog;
+  copyLogBtn.disabled = !fieldLog || !fieldLog.length;
+
+  if (!fieldLog || !fieldLog.length) {
+    runLogBody.innerHTML = '<p class="hint">No fields detected on this page.</p>';
+    return;
+  }
+
+  runLogBody.innerHTML = "";
+  fieldLog.forEach((entry) => {
+    const row = document.createElement("div");
+    row.className = "run-log-entry";
+
+    const filledBadge = `<span class="run-log-badge ${entry.filled ? "filled" : "skipped"}">${entry.filled ? "filled" : "skipped"}</span>`;
+    const confidenceBadge = entry.confidence && entry.confidence !== "none"
+      ? `<span class="run-log-badge confidence-${entry.confidence}">${CONFIDENCE_LABEL[entry.confidence]}</span>`
+      : "";
+
+    const matchedText = entry.matched ? `→ ${entry.matched}` : "→ no match";
+    const reasonText = entry.reason ? `<div class="run-log-meta">${entry.reason}</div>` : "";
+
+    row.innerHTML = `
+      <div class="run-log-field">${escapeHtml(entry.field)} ${filledBadge}${confidenceBadge}</div>
+      <div class="run-log-meta">${escapeHtml(matchedText)}</div>
+      ${reasonText}
+    `;
+    runLogBody.appendChild(row);
+  });
+}
+
+function escapeHtml(text) {
+  const div = document.createElement("div");
+  div.textContent = text ?? "";
+  return div.innerHTML;
+}
+
+function logToPlainText(fieldLog) {
+  return fieldLog
+    .map((e) => {
+      const bits = [e.field, e.filled ? "[filled]" : "[skipped]"];
+      if (e.matched) bits.push(`-> ${e.matched}`);
+      if (e.confidence && e.confidence !== "none") bits.push(`(${e.confidence})`);
+      if (e.reason) bits.push(`— ${e.reason}`);
+      return bits.join(" ");
+    })
+    .join("\n");
+}
+
+copyLogBtn.addEventListener("click", async () => {
+  if (!lastFieldLog || !lastFieldLog.length) return;
+  await navigator.clipboard.writeText(logToPlainText(lastFieldLog));
+  copyLogBtn.textContent = "Copied!";
+  setTimeout(() => (copyLogBtn.textContent = "Copy log"), 1500);
+});
+
+async function restoreLastRunLog() {
+  const { lastRunLog } = await chrome.storage.local.get(["lastRunLog"]);
+  if (lastRunLog && lastRunLog.entries) renderRunLog(lastRunLog.entries);
+}
+
+async function saveRunLog(entries, tab) {
+  await chrome.storage.local.set({
+    lastRunLog: { entries, url: tab.url, timestamp: Date.now() },
+  });
+}
+
+// --- Fill / tailor actions ----------------------------------------------
 
 fillBtn.addEventListener("click", async () => {
   fillBtn.disabled = true;
@@ -63,6 +163,9 @@ fillBtn.addEventListener("click", async () => {
       message += `\nCouldn't attach files (browsers block that) — do these manually: ${result.skippedFileFields.join(", ")}.`;
     }
     setStatus(message, result.filledCount ? "success" : "");
+
+    renderRunLog(result.fieldLog);
+    await saveRunLog(result.fieldLog, tab);
   } catch (error) {
     setStatus(error.message, "error");
   } finally {
@@ -101,3 +204,6 @@ document.getElementById("open-options").addEventListener("click", (event) => {
   event.preventDefault();
   chrome.runtime.openOptionsPage();
 });
+
+populateProfileSelect();
+restoreLastRunLog();
