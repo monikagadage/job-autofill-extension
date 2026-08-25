@@ -50,34 +50,85 @@ function textOf(el) {
 }
 
 // Gathers every plausible source of label text for a standalone field
-// (text/email/tel/url inputs, textareas, single selects).
-function getFieldLabelText(el) {
-  const parts = [];
+// (text/email/tel/url inputs, textareas, single selects), tagged with which
+// kind of source each piece came from. Order matters a little here too —
+// it's the same priority the old flat getFieldLabelText() used, and it also
+// doubles as a confidence ranking for the run log (see matchConfidence()
+// below): a real <label> or aria-label is a much stronger signal that a
+// field means what we think it means than a guessed nearby-div fallback is.
+function getLabelSources(el) {
+  const sources = [];
 
   if (el.id) {
-    document.querySelectorAll(`label[for="${CSS.escape(el.id)}"]`).forEach((l) => parts.push(textOf(l)));
+    document.querySelectorAll(`label[for="${CSS.escape(el.id)}"]`).forEach((l) => {
+      const text = textOf(l);
+      if (text) sources.push({ source: "label", text });
+    });
   }
   const wrappingLabel = el.closest("label");
-  if (wrappingLabel) parts.push(textOf(wrappingLabel));
+  if (wrappingLabel) {
+    const text = textOf(wrappingLabel);
+    if (text) sources.push({ source: "label", text });
+  }
 
-  if (el.getAttribute("aria-label")) parts.push(el.getAttribute("aria-label"));
+  if (el.getAttribute("aria-label")) {
+    sources.push({ source: "aria-label", text: el.getAttribute("aria-label") });
+  }
 
   const labelledBy = el.getAttribute("aria-labelledby");
   if (labelledBy) {
     labelledBy.split(/\s+/).forEach((id) => {
       const ref = document.getElementById(id);
-      if (ref) parts.push(textOf(ref));
+      const text = textOf(ref);
+      if (text) sources.push({ source: "aria-labelledby", text });
     });
   }
 
-  if (el.placeholder) parts.push(el.placeholder);
-  if (el.name) parts.push(humanize(el.name));
-  if (el.id) parts.push(humanize(el.id));
+  if (el.placeholder) sources.push({ source: "placeholder", text: el.placeholder });
+  if (el.name) sources.push({ source: "name/id", text: humanize(el.name) });
+  if (el.id) sources.push({ source: "name/id", text: humanize(el.id) });
 
   const containerText = getNearbyContainerLabelText(el);
-  if (containerText) parts.push(containerText);
+  if (containerText) sources.push({ source: "nearby-text", text: containerText });
 
-  return parts.join(" ").toLowerCase();
+  return sources;
+}
+
+// Gathers every plausible source of label text for a standalone field
+// (text/email/tel/url inputs, textareas, single selects).
+function getFieldLabelText(el) {
+  return getLabelSources(el).map((s) => s.text).join(" ").toLowerCase();
+}
+
+// Confidence for the run log: which *kind* of source first produced the
+// match determines how much to trust it. A real label/aria-label naming the
+// field is "high" confidence; a placeholder or humanized name/id attribute
+// is "medium" (it's the field's own attribute, but not necessarily written
+// for humans); the nearby-div-text fallback is "low" — it's a heuristic
+// guess about which nearby text is the question, and it's the fallback of
+// last resort for exactly that reason.
+function matchConfidence(sources, key) {
+  if (!key) return "none";
+  const def = FIELD_DEFINITIONS.find((d) => d.key === key);
+  if (!def) return "none";
+  for (const { source, text } of sources) {
+    const lower = text.toLowerCase();
+    if (def.keywords.some((kw) => lower.includes(kw))) {
+      if (source === "label" || source === "aria-label" || source === "aria-labelledby") return "high";
+      if (source === "placeholder" || source === "name/id") return "medium";
+      return "low"; // nearby-text
+    }
+  }
+  return "medium"; // matched, but not attributable to one source (shouldn't normally happen)
+}
+
+// Short human-readable description of a field for the run log, e.g.
+// `input[email] #email` or `select "authorizedToWork"`.
+function describeField(el) {
+  const tag = el.tagName.toLowerCase();
+  const kind = el.type ? `[${el.type}]` : "";
+  const idOrName = el.id || el.name;
+  return idOrName ? `${tag}${kind} ${idOrName}` : `${tag}${kind}`;
 }
 
 // Many custom application forms (Lever's custom questions, and plenty of
@@ -111,25 +162,33 @@ function getNearbyContainerLabelText(el) {
 
 // For a radio/checkbox, the *question* it belongs to (e.g. "Are you
 // authorized to work?") usually lives on an ancestor fieldset/legend or a
-// nearby heading, not on the input itself.
-function getGroupLabelText(el) {
+// nearby heading, not on the input itself. Returns { text, source } — the
+// source is used the same way getLabelSources()'s tags are, to rate
+// confidence for the run log.
+function getGroupLabelSource(el) {
   const fieldset = el.closest("fieldset");
   if (fieldset) {
     const legend = fieldset.querySelector("legend");
-    if (legend) return textOf(legend).toLowerCase();
+    if (legend) return { text: textOf(legend).toLowerCase(), source: "label" };
   }
 
   const group = el.closest('[role="radiogroup"], [role="group"]');
   if (group) {
-    if (group.getAttribute("aria-label")) return group.getAttribute("aria-label").toLowerCase();
+    if (group.getAttribute("aria-label")) {
+      return { text: group.getAttribute("aria-label").toLowerCase(), source: "aria-label" };
+    }
     const heading = group.querySelector("h1,h2,h3,h4,h5,h6,legend,.label,label");
-    if (heading) return textOf(heading).toLowerCase();
+    if (heading) return { text: textOf(heading).toLowerCase(), source: "label" };
   }
 
   const containerText = getNearbyContainerLabelText(el);
-  if (containerText) return containerText.toLowerCase();
+  if (containerText) return { text: containerText.toLowerCase(), source: "nearby-text" };
 
-  return humanize(el.name).toLowerCase();
+  return { text: humanize(el.name).toLowerCase(), source: "name/id" };
+}
+
+function getGroupLabelText(el) {
+  return getGroupLabelSource(el).text;
 }
 
 // The label for one specific radio option (e.g. "Yes" vs "No"), as opposed
@@ -238,12 +297,17 @@ function fillRadioGroup(radios, desiredValue) {
 }
 
 // Scans the whole page and fills every field it can confidently match.
-// Returns a summary: how many fields were filled, and which ones (by key)
-// it recognized but skipped (e.g. file inputs) so the caller can report back.
+// Returns a summary: how many fields were filled, which ones (by key) it
+// recognized but skipped (e.g. file inputs), and a per-field `log` — one
+// entry per candidate field the scan looked at, recording what it matched
+// to, how confident that match was, whether it actually got filled, and
+// why not when it didn't. That log is what the popup's "Field detection
+// log" renders — it's the tool for answering "why didn't this field fill".
 function fillPage(profile) {
   const values = flattenProfile(profile);
   const filled = [];
   const skippedFileFields = [];
+  const log = [];
   const seenRadioGroups = new Set();
 
   const candidates = document.querySelectorAll(
@@ -256,29 +320,64 @@ function fillPage(profile) {
     if (el.type === "radio") {
       if (seenRadioGroups.has(el.name)) return;
       seenRadioGroups.add(el.name);
-      const groupText = getGroupLabelText(el);
-      const key = bestKeyForText(groupText);
-      const value = key && values[key];
-      if (!value) return;
+      const group = getGroupLabelSource(el);
+      const key = bestKeyForText(group.text);
+      const field = describeField(el);
+
+      if (!key) {
+        log.push({ field, matched: null, confidence: "none", filled: false, reason: "no keyword match in the question text" });
+        return;
+      }
+      const confidence = matchConfidence([group], key);
+      const value = values[key];
+      if (!value) {
+        log.push({ field, matched: key, confidence, filled: false, reason: "no value saved in the active profile for this field" });
+        return;
+      }
       const radios = document.querySelectorAll(`input[type="radio"][name="${CSS.escape(el.name)}"]`);
-      if (fillRadioGroup(Array.from(radios), value)) filled.push(key);
+      const ok = fillRadioGroup(Array.from(radios), value);
+      if (ok) filled.push(key);
+      log.push({
+        field,
+        matched: key,
+        confidence,
+        filled: ok,
+        reason: ok ? undefined : `no radio option's label matched profile value "${value}"`,
+      });
       return;
     }
 
     if (el.type === "checkbox") return; // too varied/ambiguous to auto-fill safely
 
-    const labelText = getFieldLabelText(el);
+    const sources = getLabelSources(el);
+    const labelText = sources.map((s) => s.text).join(" ").toLowerCase();
     const key = bestKeyForText(labelText);
-    if (!key) return;
+    const field = describeField(el);
+
+    if (!key) {
+      log.push({ field, matched: null, confidence: "none", filled: false, reason: "no keyword match in label/aria-label/placeholder/name" });
+      return;
+    }
+
+    const confidence = matchConfidence(sources, key);
     const value = values[key];
-    if (value === undefined || value === null || value === "") return;
+    if (value === undefined || value === null || value === "") {
+      log.push({ field, matched: key, confidence, filled: false, reason: "no value saved in the active profile for this field" });
+      return;
+    }
 
     if (el.tagName === "SELECT") {
-      if (fillSelect(el, String(value))) filled.push(key);
+      const ok = fillSelect(el, String(value));
+      if (ok) filled.push(key);
+      log.push({ field, matched: key, confidence, filled: ok, reason: ok ? undefined : "no <option> text matched the profile value" });
     } else {
-      if (el.value) return; // don't clobber something already typed in
+      if (el.value) {
+        log.push({ field, matched: key, confidence, filled: false, reason: "field already had a value — left as-is" });
+        return;
+      }
       setNativeValue(el, String(value));
       filled.push(key);
+      log.push({ field, matched: key, confidence, filled: true });
     }
   });
 
@@ -291,13 +390,24 @@ function fillPage(profile) {
     const label = el.id
       ? textOf(document.querySelector(`label[for="${CSS.escape(el.id)}"]`))
       : "";
-    skippedFileFields.push(label || humanize(el.name || el.id) || "file upload");
+    const name = label || humanize(el.name || el.id) || "file upload";
+    skippedFileFields.push(name);
+    log.push({ field: describeField(el), matched: null, confidence: "none", filled: false, reason: "file inputs can't be filled by extensions" });
   });
 
-  return { filled, skippedFileFields };
+  return { filled, skippedFileFields, log };
 }
 
 // Exposed on window so content.js, the site adapters, and experience-filler.js
 // (each loaded as a separate injected script, but sharing the same page
 // "world") can call them.
-window.__jobAutofill = { fillPage, flattenProfile, setNativeValue, getFieldLabelText, textOf, humanize, isVisible };
+window.__jobAutofill = {
+  fillPage,
+  flattenProfile,
+  setNativeValue,
+  getFieldLabelText,
+  getLabelSources,
+  textOf,
+  humanize,
+  isVisible,
+};

@@ -11,7 +11,9 @@ async function fillCurrentPage(profile) {
   const { fillPage, flattenProfile, setNativeValue } = window.__jobAutofill;
 
   let adapterFilled = [];
-  const adapter = Object.values(adapters).find((a) => hostname.includes(a.hostnameMatch));
+  const adapterEntry = Object.entries(adapters).find(([, a]) => hostname.includes(a.hostnameMatch));
+  const adapterName = adapterEntry ? adapterEntry[0] : null;
+  const adapter = adapterEntry ? adapterEntry[1] : null;
   if (adapter) {
     adapterFilled = adapter.fill(flattenProfile(profile), setNativeValue);
   }
@@ -42,6 +44,21 @@ async function fillCurrentPage(profile) {
     experienceEntriesAdded: experienceResult.entriesAdded,
     educationEntriesFilled: educationResult.entriesFilled,
     educationEntriesAdded: educationResult.entriesAdded,
+    // Per-field detection log for the popup's "Field detection log" panel —
+    // see field-matcher.js's fillPage() for what each entry means. Adapter
+    // fills (Greenhouse/Lever/LinkedIn's few stable-selector fields) are
+    // included as their own high-confidence entries so the log reflects
+    // everything that ran, not just the generic pass.
+    fieldLog: [
+      ...adapterFilled.map((selector) => ({
+        field: selector,
+        matched: "adapter",
+        confidence: "high",
+        filled: true,
+        reason: `filled by the ${adapterName || "site"} adapter`,
+      })),
+      ...generic.log,
+    ],
   };
 }
 
