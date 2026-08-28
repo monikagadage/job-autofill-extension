@@ -1,5 +1,5 @@
 import { loadProfiles, getActiveProfile, setActiveProfile } from "../lib/profile-store.js";
-import { logApplication } from "../lib/history-store.js";
+import { logApplication, findRecentApplicationsForCompany } from "../lib/history-store.js";
 
 const CONTENT_FILES = [
   "content/field-matcher.js",
@@ -18,6 +18,7 @@ const tailorBtn = document.getElementById("tailor-btn");
 const profileSelect = document.getElementById("profile-select");
 const runLogBody = document.getElementById("run-log-body");
 const copyLogBtn = document.getElementById("copy-log-btn");
+const dupWarningEl = document.getElementById("dup-warning");
 
 let lastFieldLog = null;
 
@@ -156,6 +157,41 @@ async function logHistoryEntry(tab) {
   }
 }
 
+// --- Duplicate-application warning ---------------------------------------
+// Runs as soon as the popup opens (before the user clicks "Fill this
+// page"), so the warning is visible ahead of the action it's warning
+// about, not just logged alongside it. Non-blocking by design — it never
+// disables the Fill/Tailor buttons, just surfaces what history already
+// knows. Silently does nothing on a tab it can't inspect (chrome:// pages,
+// no active tab, etc.) or when job-info.js can't detect a company name.
+async function checkDuplicateWarning() {
+  try {
+    const tab = await getActiveTab();
+    await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ["content/job-info.js"] });
+    const [{ result: jobInfo }] = await chrome.scripting.executeScript({
+      target: { tabId: tab.id },
+      func: () => window.__jobAutofillJobInfo.extractJobInfo(),
+    });
+    if (!jobInfo || !jobInfo.company) {
+      dupWarningEl.hidden = true;
+      return;
+    }
+    const matches = await findRecentApplicationsForCompany(jobInfo.company);
+    if (!matches.length) {
+      dupWarningEl.hidden = true;
+      return;
+    }
+    const mostRecent = matches[0];
+    const date = new Date(mostRecent.timestamp).toLocaleDateString();
+    dupWarningEl.textContent =
+      `⚠ You already applied to ${jobInfo.company} on ${date} ` +
+      `(status: ${mostRecent.status}). Filling this page will log another entry.`;
+    dupWarningEl.hidden = false;
+  } catch (error) {
+    dupWarningEl.hidden = true; // non-blocking — a detection failure just means no warning shows
+  }
+}
+
 // --- Fill / tailor actions ----------------------------------------------
 
 fillBtn.addEventListener("click", async () => {
@@ -235,3 +271,4 @@ document.getElementById("open-history").addEventListener("click", (event) => {
 
 populateProfileSelect();
 restoreLastRunLog();
+checkDuplicateWarning();
