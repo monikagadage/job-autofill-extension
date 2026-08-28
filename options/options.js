@@ -192,3 +192,21 @@ form.addEventListener("submit", async (event) => {
 
 loadAndRenderActiveProfile();
 loadApiKey();
+
+// --- Tabs (Profile / Application History) -------------------------------
+// Kept in this file rather than history.js since history.js only owns the
+// history tab's own content, not page-level tab chrome.
+
+const tabButtons = document.querySelectorAll(".tab-btn");
+const tabPanes = document.querySelectorAll(".tab-pane");
+
+function activateTab(tabId) {
+  tabButtons.forEach((btn) => btn.classList.toggle("active", btn.dataset.tab === tabId));
+  tabPanes.forEach((pane) => pane.classList.toggle("active", pane.id === tabId));
+}
+
+tabButtons.forEach((btn) => btn.addEventListener("click", () => activateTab(btn.dataset.tab)));
+
+// Lets the popup's "View application history" link jump straight to this
+// tab via options.html#history.
+if (window.location.hash === "#history") activateTab("tab-history");

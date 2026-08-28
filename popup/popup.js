@@ -1,4 +1,5 @@
 import { loadProfiles, getActiveProfile, setActiveProfile } from "../lib/profile-store.js";
+import { logApplication } from "../lib/history-store.js";
 
 const CONTENT_FILES = [
   "content/field-matcher.js",
@@ -8,6 +9,7 @@ const CONTENT_FILES = [
   "content/combobox-filler.js",
   "content/repeater-filler.js",
   "content/content.js",
+  "content/job-info.js",
 ];
 
 const statusEl = document.getElementById("status");
@@ -135,6 +137,25 @@ async function saveRunLog(entries, tab) {
   });
 }
 
+// --- Application history --------------------------------------------------
+// Logs one entry after a successful "Fill this page" or "Tailor resume"
+// run, so the extension has a record of what you actually worked on (see
+// lib/history-store.js). Best-effort: content/job-info.js's detection is
+// unverified against live postings (see DESIGN.md), and a failure here
+// should never take away the fill/tailor result the user already got, so
+// errors are swallowed after a console warning.
+async function logHistoryEntry(tab) {
+  try {
+    const [{ result: jobInfo }] = await chrome.scripting.executeScript({
+      target: { tabId: tab.id },
+      func: () => window.__jobAutofillJobInfo.extractJobInfo(),
+    });
+    if (jobInfo) await logApplication(jobInfo);
+  } catch (error) {
+    console.warn("Job Autofill: couldn't log application history.", error);
+  }
+}
+
 // --- Fill / tailor actions ----------------------------------------------
 
 fillBtn.addEventListener("click", async () => {
@@ -166,6 +187,7 @@ fillBtn.addEventListener("click", async () => {
 
     renderRunLog(result.fieldLog);
     await saveRunLog(result.fieldLog, tab);
+    await logHistoryEntry(tab);
   } catch (error) {
     setStatus(error.message, "error");
   } finally {
@@ -193,6 +215,7 @@ tailorBtn.addEventListener("click", async () => {
     await chrome.storage.local.set({ lastTailoredResume: response.tailored, lastTailoredAt: Date.now() });
     await chrome.tabs.create({ url: chrome.runtime.getURL("result/result.html") });
     setStatus("Done — opened in a new tab.", "success");
+    await logHistoryEntry(tab);
   } catch (error) {
     setStatus(error.message, "error");
   } finally {
@@ -203,6 +226,11 @@ tailorBtn.addEventListener("click", async () => {
 document.getElementById("open-options").addEventListener("click", (event) => {
   event.preventDefault();
   chrome.runtime.openOptionsPage();
+});
+
+document.getElementById("open-history").addEventListener("click", (event) => {
+  event.preventDefault();
+  chrome.tabs.create({ url: chrome.runtime.getURL("options/options.html#history") });
 });
 
 populateProfileSelect();

@@ -54,7 +54,7 @@ button:disabled {
 .status.error { color: #b00020; }
 .status.success { color: #1a8b3f; }
 
-#open-options {
+#open-options, #open-history {
   display: block;
   text-align: center;
   font-size: 12px;
@@ -62,7 +62,7 @@ button:disabled {
   text-decoration: none;
   margin-top: 4px;
 }
-#open-options:hover { text-decoration: underline; }
+#open-options:hover, #open-history:hover { text-decoration: underline; }
 
 #profile-picker {
   display: block;

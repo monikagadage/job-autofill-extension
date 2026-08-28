@@ -16,7 +16,13 @@
     </p>
   </header>
 
+  <nav class="tabs">
+    <button type="button" class="tab-btn active" data-tab="tab-profile">Profile</button>
+    <button type="button" class="tab-btn" data-tab="tab-history">Application History</button>
+  </nav>
+
   <main>
+  <div id="tab-profile" class="tab-pane active">
     <section id="profile-switcher">
       <h2>Profiles</h2>
       <p class="hint">
@@ -159,6 +165,61 @@
         <span id="save-status"></span>
       </div>
     </form>
+  </div>
+
+  <div id="tab-history" class="tab-pane">
+    <section id="history-section">
+      <h2>Application History</h2>
+      <p class="hint">
+        One entry per successful "Fill this page" or "Tailor resume" run.
+        Update the status as you hear back &mdash; this is stored only in
+        this browser, same as your profiles.
+      </p>
+
+      <div class="history-controls">
+        <label>Search
+          <input type="text" id="history-search" placeholder="Company or job title..." />
+        </label>
+        <label>Status
+          <select id="history-status-filter">
+            <option value="all">All</option>
+            <option value="applied">Applied</option>
+            <option value="interviewing">Interviewing</option>
+            <option value="rejected">Rejected</option>
+            <option value="offer">Offer</option>
+          </select>
+        </label>
+        <label>Sort by
+          <select id="history-sort">
+            <option value="newest">Newest first</option>
+            <option value="oldest">Oldest first</option>
+            <option value="company">Company (A-Z)</option>
+          </select>
+        </label>
+      </div>
+
+      <p id="history-empty" class="hint" hidden>
+        Nothing here yet &mdash; run "Fill this page" or "Tailor resume" on a
+        job posting and it'll show up here.
+      </p>
+
+      <div class="history-table-wrap">
+        <table id="history-table" hidden>
+          <thead>
+            <tr>
+              <th>Date</th>
+              <th>Company</th>
+              <th>Job title</th>
+              <th>ATS</th>
+              <th>Status</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="history-table-body"></tbody>
+        </table>
+      </div>
+    </section>
+  </div>
   </main>
 
   <template id="education-entry-template">
@@ -191,6 +252,7 @@
     </div>
   </template>
 
+  <script type="module" src="history.js"></script>
   <script type="module" src="options.js"></script>
 </body>
 </html>
