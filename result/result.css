@@ -36,7 +36,7 @@ h1 { font-size: 20px; margin: 0; }
 #copy-btn:hover { background: #1440b0; }
 #copy-btn.copied { background: #1a8b3f; }
 
-#resume-output {
+#resume-output, #cover-letter-output {
   width: 100%;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 13px;
@@ -45,4 +45,40 @@ h1 { font-size: 20px; margin: 0; }
   border: 1px solid #ccc;
   border-radius: 8px;
   resize: vertical;
+}
+
+.tabs {
+  display: flex;
+  gap: 6px;
+  margin: 4px 0 14px;
+  border-bottom: 1px solid #e2e2e2;
+}
+
+.tab-btn {
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  padding: 9px 4px;
+  margin-right: 14px;
+  font-size: 14px;
+  font-weight: 600;
+  color: #666;
+  cursor: pointer;
+}
+
+.tab-btn.active {
+  color: #1a4fd6;
+  border-bottom-color: #1a4fd6;
+}
+
+.tab-pane {
+  display: none;
+}
+
+.tab-pane.active {
+  display: block;
+}
+
+#cover-letter-note {
+  margin-top: 0;
 }

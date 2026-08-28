@@ -248,7 +248,12 @@ tailorBtn.addEventListener("click", async () => {
 
     if (!response.ok) throw new Error(response.error);
 
-    await chrome.storage.local.set({ lastTailoredResume: response.tailored, lastTailoredAt: Date.now() });
+    await chrome.storage.local.set({
+      lastTailoredResume: response.tailored,
+      lastCoverLetter: response.coverLetter || null,
+      lastCoverLetterError: response.coverLetterError || null,
+      lastTailoredAt: Date.now(),
+    });
     await chrome.tabs.create({ url: chrome.runtime.getURL("result/result.html") });
     setStatus("Done — opened in a new tab.", "success");
     await logHistoryEntry(tab);

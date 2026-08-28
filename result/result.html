@@ -2,18 +2,32 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>Tailored Resume</title>
+  <title>Tailored Application Materials</title>
   <link rel="stylesheet" href="result.css" />
 </head>
 <body>
   <header>
-    <h1>Tailored resume</h1>
+    <h1>Tailored application materials</h1>
     <button id="copy-btn">Copy to clipboard</button>
   </header>
   <p class="hint">
-    Review this before using it — Claude was instructed not to invent experience, only reorder/reframe what's in your saved resume, but double-check it stayed truthful.
+    Review this before using it — Claude was instructed not to invent experience, only reorder/reframe what's in your saved resume and profile, but double-check it stayed truthful.
   </p>
-  <textarea id="resume-output" rows="30" readonly></textarea>
+
+  <nav class="tabs">
+    <button type="button" class="tab-btn active" data-tab="tab-resume">Tailored Resume</button>
+    <button type="button" class="tab-btn" data-tab="tab-cover-letter">Cover Letter</button>
+  </nav>
+
+  <div id="tab-resume" class="tab-pane active">
+    <textarea id="resume-output" rows="26" readonly></textarea>
+  </div>
+
+  <div id="tab-cover-letter" class="tab-pane">
+    <p id="cover-letter-note" class="hint" hidden></p>
+    <textarea id="cover-letter-output" rows="26" readonly></textarea>
+  </div>
+
   <script src="result.js"></script>
 </body>
 </html>
