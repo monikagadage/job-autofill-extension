@@ -31,3 +31,41 @@ Object.defineProperty(HTMLElement.prototype, "offsetParent", {
     return this.ownerDocument ? this.ownerDocument.body : null;
   },
 });
+
+// Minimal in-memory chrome.storage.local mock. lib/profile-store.js and
+// lib/history-store.js both call the real chrome.storage.local API when
+// running as an actual extension; under Jest there is no browser, so this
+// stands in for it. It's intentionally tiny — get/set over one shared
+// object, keyed the same way the real API is — just enough for those
+// modules' read-modify-write pattern. Tests reset it themselves via
+// chrome.storage.local.__reset() in a beforeEach, the same way DOM-based
+// tests reset with `document.body.innerHTML = ""`.
+if (typeof global.chrome === "undefined") {
+  global.chrome = {};
+}
+if (!global.chrome.storage) {
+  let store = {};
+  global.chrome.storage = {
+    local: {
+      get(keys) {
+        return Promise.resolve().then(() => {
+          if (!keys) return { ...store };
+          const keyList = Array.isArray(keys) ? keys : [keys];
+          const result = {};
+          keyList.forEach((key) => {
+            if (store[key] !== undefined) result[key] = store[key];
+          });
+          return result;
+        });
+      },
+      set(items) {
+        return Promise.resolve().then(() => {
+          Object.assign(store, items);
+        });
+      },
+      __reset() {
+        store = {};
+      },
+    },
+  };
+}
