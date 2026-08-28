@@ -29,7 +29,19 @@ resume toward a specific job posting.
   tier (high/medium/low), and why a field was or wasn't filled.
 - **Resume tailoring** — click **Tailor resume for this job** to grab the
   job description off the current page and get back a version of your base
-  resume reframed toward it (opens in a new tab with a copy button).
+  resume reframed toward it, plus a short tailored **cover letter**
+  generated from the same job description and resume — both open in a new
+  tab, one per tab, each with its own copy button.
+- **Application history** — every successful "Fill this page" or "Tailor
+  resume" run logs an entry (company, job title, posting URL, ATS
+  platform, timestamp) to a local history. Open it from the popup's **View
+  application history** link or the options page's **Application History**
+  tab: search, filter by status, sort, and mark each entry
+  applied/interviewing/rejected/offer as you hear back.
+- **Duplicate-application warning** — when the popup opens on a job
+  posting, it checks the detected company against your last 90 days of
+  history and shows a non-blocking warning if you already have an entry
+  for it. It never blocks Fill/Tailor — it's just a heads-up.
 
 See [DESIGN.md](DESIGN.md) for how the field-matching algorithm, adapters,
 and tailoring flow work.
@@ -51,9 +63,16 @@ LinkedIn's caveats are in [DESIGN.md](DESIGN.md#known-limitations--unverified).
 - File uploads (resume/cover letter attachments) can never be filled by any
   browser extension — the popup lists which file fields it skipped.
 - Your Claude API key is stored unencrypted in `chrome.storage.local`.
-- Resume tailoring only reframes what's already in your saved resume text;
-  Claude is instructed not to invent experience.
+- Resume tailoring and cover letter generation only reframe what's already
+  in your saved resume text; Claude is instructed not to invent
+  experience.
 - The LinkedIn adapter is unverified — see [DESIGN.md](DESIGN.md).
+- Company-name/job-title detection (`content/job-info.js`, used for
+  application history and the duplicate-application warning) is also
+  unverified against live postings — see
+  [DESIGN.md](DESIGN.md#known-limitations--unverified). A missed or wrong
+  company name means a history entry logs as "Unknown company" or the
+  duplicate warning doesn't fire; it never blocks filling.
 
 ## Testing without a real job site
 
@@ -67,7 +86,12 @@ npm install   # one-time, installs Jest + jsdom as devDependencies
 npm test
 ```
 
-21 Jest tests cover `content/field-matcher.js`'s DOM heuristics and the
-LinkedIn adapter, run against jsdom (see `test/jest.setup.js` for the
-polyfills that requires). This is dev-only tooling — the extension itself
-has no build step and no runtime dependencies.
+60 Jest tests cover `content/field-matcher.js`'s DOM heuristics, the
+LinkedIn adapter, `content/job-info.js`'s company/title/ATS detection,
+`lib/history-store.js`'s history logic, and `lib/claude-api.js`'s request
+shape and error handling (with `global.fetch` mocked — no real network
+calls run in tests). Runs against jsdom (see `test/jest.setup.js` for the
+polyfills and the in-memory `chrome.storage.local` mock that requires) via
+a Babel-transformed Jest setup (`babel.config.js`, dev-only — it doesn't
+touch how the extension runs in Chrome). This is dev-only tooling — the
+extension itself has no build step and no runtime dependencies.

@@ -19,10 +19,12 @@ flowchart TB
         FillBtn["Fill this page"]
         TailorBtn["Tailor resume"]
         Log["Field detection log"]
+        DupWarn["Duplicate-application warning"]
     end
 
-    subgraph Options["options/ (options.js)"]
+    subgraph Options["options/ (options.js + history.js)"]
         ProfileForm["Profile form + API key"]
+        HistoryView["Application History tab"]
     end
 
     subgraph Page["Job application tab (injected content scripts)"]
@@ -31,24 +33,30 @@ flowchart TB
         Combo["combobox-filler.js"]
         Repeater["repeater-filler.js"]
         Content["content.js\n(entry point)"]
+        JobInfo["job-info.js\n(company/title/ATS detection)"]
     end
 
     subgraph BG["background.js (service worker)"]
-        Claude["lib/claude-api.js"]
+        Claude["lib/claude-api.js\ntailorResume + generateCoverLetter"]
     end
 
     subgraph Storage["chrome.storage.local"]
         Profiles["profiles, activeProfileId\n(lib/profile-store.js)"]
         ApiKey["anthropicApiKey"]
         RunLog["lastRunLog"]
-        Tailored["lastTailoredResume"]
+        Tailored["lastTailoredResume,\nlastCoverLetter"]
+        History["applicationHistory\n(lib/history-store.js)"]
     end
 
-    Result["result/ (result.js)"]
+    Result["result/ (result.js)\nResume tab + Cover Letter tab"]
 
     Options -- "saveProfile / setActiveProfile" --> Profiles
     Options -- save --> ApiKey
+    HistoryView -- "loadHistory / updateApplicationStatus" --> History
     Popup -- "loadProfiles/getActiveProfile" --> Profiles
+    Popup -- "extractJobInfo()" --> JobInfo
+    Popup -- "findRecentApplicationsForCompany()" --> History
+    History -- "match found" --> DupWarn
     FillBtn -- "chrome.scripting.executeScript" --> Content
     Content --> FM
     Content --> Adapters
@@ -57,13 +65,14 @@ flowchart TB
     Content -- "fill result + fieldLog" --> Popup
     Popup -- "write" --> RunLog
     RunLog -- "restore on reopen" --> Log
+    Popup -- "logApplication()" --> History
     TailorBtn -- "extractJobDescription()" --> Content
     TailorBtn -- "chrome.runtime.sendMessage(TAILOR_RESUME)" --> BG
     BG -- "getActiveProfile()" --> Profiles
     BG -- "read key" --> ApiKey
     BG --> Claude
-    Claude -- "POST https://api.anthropic.com/v1/messages" --> AnthropicAPI["Anthropic Messages API"]
-    BG -- "sendResponse({tailored})" --> Popup
+    Claude -- "2x POST https://api.anthropic.com/v1/messages" --> AnthropicAPI["Anthropic Messages API"]
+    BG -- "sendResponse({tailored, coverLetter})" --> Popup
     Popup -- "write" --> Tailored
     Popup -- "chrome.tabs.create" --> Result
     Result -- "read" --> Tailored
@@ -79,24 +88,45 @@ description *text* to the background script via `chrome.runtime.sendMessage`
 
 - **`background.js`** — service worker; the only place that calls the
   Claude API. Listens for a `TAILOR_RESUME` message, reads the active
-  profile and API key from storage, calls `lib/claude-api.js`, and replies.
+  profile and API key from storage, calls `lib/claude-api.js`'s
+  `tailorResume()` and `generateCoverLetter()`, and replies with both
+  results.
 - **`popup/`** — the toolbar UI. Injects content scripts into the active
   tab, calls their exposed functions via `chrome.scripting.executeScript`,
-  renders the field detection log, and hosts the profile switcher.
-- **`options/`** — the profile-editing form (personal info, education,
-  experience, resume text, skills) plus the shared API key field. Talks to
-  storage only through `lib/profile-store.js`.
+  renders the field detection log, hosts the profile switcher, checks for
+  a duplicate application as soon as it opens, and logs a history entry
+  after each successful fill/tailor.
+- **`options/`** — two tabs. `options.js` owns the profile-editing form
+  (personal info, education, experience, resume text, skills) plus the
+  shared API key field, and talks to storage only through
+  `lib/profile-store.js`. `history.js` owns the **Application History**
+  tab (search/filter/sort, per-row status picker, remove), talking to
+  storage only through `lib/history-store.js`. Deep-linkable to the
+  history tab via `options.html#history`.
 - **`content/`** — injected into the job-application page on click (not
   auto-injected on page load). `content.js` is the entry point; it wires
   the generic matcher, whichever site adapter matches the hostname, the
   combobox filler, and the repeater filler together and exposes
-  `fillCurrentPage()` / `extractJobDescription()` on `window`.
+  `fillCurrentPage()` / `extractJobDescription()` on `window`. `job-info.js`
+  is a separate, independent content script exposing `extractJobInfo()` —
+  best-effort company name / job title / ATS platform detection, used by
+  both application history and the duplicate-application warning.
 - **`lib/profile-store.js`** — the only code that reads/writes profile data
   in `chrome.storage.local`; every other component goes through it so a
   read from the popup, options page, and background worker always agree.
+- **`lib/history-store.js`** — the only code that reads/writes
+  `applicationHistory` in `chrome.storage.local`. Same one-module-owns-one-
+  key discipline as `profile-store.js`: `logApplication()`,
+  `updateApplicationStatus()`, `deleteApplication()`,
+  `findRecentApplicationsForCompany()`.
 - **`lib/claude-api.js`** — thin wrapper around the Messages API.
-- **`result/`** — a plain tab that reads `lastTailoredResume` from storage
-  and shows it with a copy button.
+  `tailorResume()` and `generateCoverLetter()` share a `callClaude()`
+  helper (same POST-a-system-and-user-turn, parse-the-text-back-out shape,
+  different prompts and token budgets).
+- **`result/`** — a plain tab with two sub-tabs (Tailored Resume / Cover
+  Letter) that reads `lastTailoredResume` and `lastCoverLetter` from
+  storage and shows whichever tab is active, each with its own copy
+  button.
 
 ### Content script loading model
 
@@ -252,7 +282,24 @@ a one-time, silent, lossless migration. Deleting the only remaining
 profile is rejected (`deleteProfile` throws) since the extension always
 needs at least one active profile.
 
-## Resume-tailoring flow
+## Application-history data model (`lib/history-store.js`)
+
+```
+chrome.storage.local:
+  applicationHistory: { [entryId]: HistoryEntry }
+```
+
+`HistoryEntry` = `{ id, company, jobTitle, url, atsPlatform, timestamp,
+status, statusUpdatedAt }`, where `status` is one of `APPLICATION_STATUSES`
+= `["applied", "interviewing", "rejected", "offer"]`. New entries always
+start at `"applied"` — that's what a logged fill/tailor run means until
+you update it. Every reader/writer (popup, options page's history tab)
+goes through this module's `loadHistory()` / `logApplication()` /
+`updateApplicationStatus()` / `deleteApplication()` /
+`findRecentApplicationsForCompany()`, same discipline as
+`lib/profile-store.js`.
+
+## Resume-tailoring and cover-letter flow
 
 1. Popup's **Tailor resume for this job** button injects content scripts
    (if not already present) and calls `extractJobDescription()`, which
@@ -269,9 +316,72 @@ needs at least one active profile.
    not already in the base resume — and to list unmet requirements under a
    "Gaps to consider" section instead of fabricating them. Output is plain
    text (no markdown formatting) so it's paste-ready.
-5. The tailored text is saved to `chrome.storage.local` as
-   `lastTailoredResume`, and a new tab opens `result/result.html`, which
-   reads that key and displays it with a copy-to-clipboard button.
+5. Still inside the same `TAILOR_RESUME` handler, `background.js` makes a
+   **second**, independent Claude call — `generateCoverLetter()` — with the
+   same job description and base resume text, a different system prompt
+   (short, 3-4 paragraphs, ties specific resume experience to the posting,
+   no invented claims, no bracketed placeholders, signs off with the
+   active profile's name), and a smaller 900-token budget. If this second
+   call fails, it doesn't take down the first: the handler catches the
+   error separately and returns `coverLetterError` alongside the
+   already-successful `tailored` text, rather than failing the whole
+   message.
+6. The tailored resume and cover letter (or `coverLetterError`) are saved
+   to `chrome.storage.local` as `lastTailoredResume` / `lastCoverLetter` /
+   `lastCoverLetterError`, and a new tab opens `result/result.html`, which
+   reads those keys and shows them in two tabs (Tailored Resume / Cover
+   Letter), each with its own copy-to-clipboard button. A missing/failed
+   cover letter shows an explanatory message in its tab instead of blank
+   text.
+7. Either way, the popup then calls `content/job-info.js`'s
+   `extractJobInfo()` on the tab and logs one entry to application history
+   via `logApplication()` — see below.
+
+## Application history and the duplicate-application warning
+
+**Logging** (`lib/history-store.js`, storage key `applicationHistory`):
+after a successful "Fill this page" or "Tailor resume" run, `popup.js`
+calls `content/job-info.js`'s `extractJobInfo()` on the active tab to get
+`{ company, jobTitle, atsPlatform, url }`, then `logApplication()` writes
+one `HistoryEntry` (adding `id`, `timestamp`, and a default `status` of
+`"applied"`). This is best-effort and non-blocking by design: it runs
+*after* the fill/tailor result is already shown to the user, and any
+failure (detection came back empty, storage write failed) is caught and
+logged to the console rather than surfaced — a missed history entry should
+never look like a failed fill.
+
+`content/job-info.js` detects the ATS platform from the hostname (solid —
+`greenhouse.io` / `lever.co` / `linkedin.com` / `myworkdayjobs.com`
+substring matches), then company name and job title through a per-ATS
+chain of selectors and URL conventions (Greenhouse/Lever: first URL path
+segment; Workday: subdomain; LinkedIn: top-card selectors) falling back to
+`og:site_name`/`og:title` meta tags, and finally to parsing
+`document.title` for an "X at Y" or "Y - X" pattern. Like company/title
+detection, this is **unverified against live postings** — see [Known
+limitations](#known-limitations--unverified). An empty detection just
+means `logApplication()` falls back to "Unknown company" / "Unknown
+title", not a broken fill.
+
+**The Application History tab** (`options/history.js`) renders every
+entry from `loadHistory()` with a search box (matches company + job
+title), a status filter, and a sort control (newest/oldest/company A-Z).
+Each row's status `<select>` calls `updateApplicationStatus()` directly on
+change; a remove button calls `deleteApplication()` after a confirm
+prompt. It's a second `<script type="module">` on `options.html`,
+independent of `options.js`'s profile form — `options.js` only owns the
+page-level Profile/History tab switching.
+
+**The duplicate-application warning** runs in the popup as soon as it
+opens — before the user clicks anything — precisely so it's seen ahead of
+the action it's warning about, not just logged alongside it:
+`checkDuplicateWarning()` injects `job-info.js`, calls `extractJobInfo()`
+for the current tab's company, then
+`findRecentApplicationsForCompany(company)` (case-insensitive, trimmed
+exact match, 90-day window by default) against history. A match renders a
+non-blocking amber banner ("You already applied to \<company\> on \<date\>
+(status: \<status\>)"); Fill/Tailor stay enabled regardless — this is a
+heads-up, not a gate. No match, no company detected, or an inspectable-tab
+failure (chrome:// pages, etc.) all just hide the banner silently.
 
 ## Known limitations / unverified
 
@@ -312,6 +422,20 @@ needs at least one active profile.
   expect a dropdown suggestion click for the value to fully register.
 - **Claude API key is stored unencrypted** in `chrome.storage.local` — fine
   for a personal-use tool, but don't share your browser profile.
-- **Resume tailoring is bounded by what's already in the saved resume
-  text** — Claude is instructed not to invent experience; review output
-  before sending it anywhere.
+- **Resume tailoring and cover letter generation are bounded by what's
+  already in the saved resume text** — Claude is instructed not to invent
+  experience; review output before sending it anywhere.
+- **Company/job-title/ATS detection (`content/job-info.js`) is unverified
+  against live postings**, the same caveat as the LinkedIn adapter above:
+  built from each ATS's documented URL/DOM conventions and traced against
+  constructed HTML fixtures (`__tests__/job-info.test.js`), not real pages.
+  ATS-platform detection (from hostname) is solid; company-name/job-title
+  text extraction is a heuristic fallback chain that can come back empty
+  or wrong if a site's markup doesn't match the assumed conventions — in
+  which case a history entry logs as "Unknown company"/"Unknown title," or
+  the duplicate-application warning simply doesn't fire. Neither failure
+  mode blocks filling or tailoring.
+- **The duplicate-application warning is a same-name match only** — no
+  fuzzy matching, so "Acme" and "Acme Corp" are treated as different
+  companies. Deliberate: a missed near-duplicate is a safer failure mode
+  for a non-blocking warning than false-flagging an unrelated company.
