@@ -1,97 +1,80 @@
-# Job Application Autofill + Resume Tailoring
+# job-autofill — a field-matching engine for job application forms
 
-A Chrome extension for your own job hunt: fills application forms from a
-profile you fill in once, and (optionally) asks Claude to reframe your
-resume toward a specific job posting.
+[![CI](https://github.com/monikagadage/job-autofill-extension/actions/workflows/ci.yml/badge.svg)](https://github.com/monikagadage/job-autofill-extension/actions/workflows/ci.yml)
+
+A Chrome extension (Manifest V3) that fills job application forms from a
+stored profile and, optionally, uses Claude to reframe a resume toward a
+specific posting. The core is a **DOM field-matching engine**: a generic
+heuristic matcher that scores every input on a page against known profile
+fields and reports a confidence tier and a reason for each, plus
+**pluggable per-ATS adapters** for the cases where generic heuristics
+aren't enough (Workday's multi-step wizard, Lever, Greenhouse, LinkedIn).
+
+No build step, no runtime dependencies. 60 Jest tests over the matcher,
+adapters, and the Claude client.
+
+## How the matching works
+
+| Layer | File | What it does |
+|---|---|---|
+| **Generic matcher** | `content/field-matcher.js` | For each visible input: gather signals (label text, `name`/`id`/`placeholder`/`aria-label`, surrounding text), match against a synonym map for each profile field, and emit `{field, confidence: high\|medium\|low, reason}`. Low-confidence matches are shown but not filled. |
+| **Site adapters** | `content/site-adapters/*.js` | Override or extend the generic pass for a specific ATS with known selectors (Greenhouse, Lever, LinkedIn). Selected by URL match; absent one, the generic matcher runs alone. |
+| **Special fillers** | `content/combobox-filler.js`, `repeater-filler.js` | Handle button-triggered dropdowns / comboboxes (Workday Country & State — open, type, pick from the listbox) and repeating sections like work-history rows. Multi-step forms (Workday, LinkedIn) are filled a step at a time: re-click **Fill this page** on each screen. |
+| **Detection log** | popup | Every field scanned, what it matched, the tier, and why it was or wasn't filled — so a wrong fill is diagnosable. |
+
+See [DESIGN.md](DESIGN.md) for the scoring rules and the per-ATS caveats.
 
 ## Load it in Chrome
 
-1. Open `chrome://extensions`.
-2. Turn on **Developer mode** (top right toggle).
-3. Click **Load unpacked**, and select this folder (`job-autofill-extension`).
-4. Click the extension's icon in the toolbar, then **Edit profile / API key**
-   to fill in your info. Resume tailoring also needs a Claude API key from
-   [console.anthropic.com](https://console.anthropic.com/settings/keys) —
-   autofill alone doesn't need one.
+1. `chrome://extensions` → enable **Developer mode**.
+2. **Load unpacked** → select this folder.
+3. Click the extension icon → **Edit profile / API key**. Autofill alone
+   needs no key; resume tailoring needs a [Claude API key](https://console.anthropic.com/settings/keys).
 
 ## Features
 
-- **Autofill** — click **Fill this page** to scan visible form fields and
-  fill what it recognizes from your active profile, using a generic
-  DOM-based field matcher plus site-specific adapters (see below).
-- **Multiple profiles** — keep separate profiles (e.g. "Backend roles",
-  "Frontend roles") each with their own info, resume, and experience;
-  switch the active one from the popup or options page. The Claude API key
-  is shared across all profiles. Existing single-profile installs migrate
-  automatically.
-- **Field detection log** — after a fill, expand **Field detection log** in
-  the popup to see every field scanned, what it matched to, a confidence
-  tier (high/medium/low), and why a field was or wasn't filled.
-- **Resume tailoring** — click **Tailor resume for this job** to grab the
-  job description off the current page and get back a version of your base
-  resume reframed toward it, plus a short tailored **cover letter**
-  generated from the same job description and resume — both open in a new
-  tab, one per tab, each with its own copy button.
-- **Application history** — every successful "Fill this page" or "Tailor
-  resume" run logs an entry (company, job title, posting URL, ATS
-  platform, timestamp) to a local history. Open it from the popup's **View
-  application history** link or the options page's **Application History**
-  tab: search, filter by status, sort, and mark each entry
-  applied/interviewing/rejected/offer as you hear back.
-- **Duplicate-application warning** — when the popup opens on a job
-  posting, it checks the detected company against your last 90 days of
-  history and shows a non-blocking warning if you already have an entry
-  for it. It never blocks Fill/Tailor — it's just a heads-up.
+- **Autofill** — **Fill this page** scans visible fields and fills what it
+  recognizes from the active profile.
+- **Multiple profiles** — separate profiles (e.g. "Backend", "Frontend"),
+  each with its own info/resume/experience; the API key is shared.
+  Single-profile installs migrate automatically.
+- **Resume tailoring** — **Tailor resume for this job** pulls the job
+  description off the page and returns a reframed resume + a short cover
+  letter, each in its own tab. Claude is instructed to reframe only what's
+  already in the saved resume, not invent experience.
+- **Application history** — every Fill/Tailor logs `{company, title, URL,
+  ATS, timestamp}` locally; filter, sort, and mark
+  applied/interviewing/rejected/offer.
+- **Duplicate-application warning** — non-blocking heads-up if the detected
+  company matches an entry from the last 90 days.
 
-See [DESIGN.md](DESIGN.md) for how the field-matching algorithm, adapters,
-and tailoring flow work.
-
-## Site support
+## ATS support
 
 | Site | Status |
 | --- | --- |
 | Greenhouse (`job-boards.greenhouse.io`) | Verified against a live posting |
 | Lever (`jobs.lever.co`) | Verified against a live posting |
 | Workday (`*.myworkdayjobs.com`) | Verified against a live posting |
-| LinkedIn Easy Apply (`linkedin.com/jobs`) | **Unverified** — built from documented DOM conventions, not tested against a live posting |
-
-Per-site DOM details, the Workday step-by-step wizard walkthrough, and
-LinkedIn's caveats are in [DESIGN.md](DESIGN.md#known-limitations--unverified).
+| LinkedIn Easy Apply (`linkedin.com/jobs`) | **Unverified** — built from documented DOM conventions, not tested live |
 
 ## Known limitations
 
-- File uploads (resume/cover letter attachments) can never be filled by any
-  browser extension — the popup lists which file fields it skipped.
-- Your Claude API key is stored unencrypted in `chrome.storage.local`.
-- Resume tailoring and cover letter generation only reframe what's already
-  in your saved resume text; Claude is instructed not to invent
-  experience.
-- The LinkedIn adapter is unverified — see [DESIGN.md](DESIGN.md).
-- Company-name/job-title detection (`content/job-info.js`, used for
-  application history and the duplicate-application warning) is also
-  unverified against live postings — see
-  [DESIGN.md](DESIGN.md#known-limitations--unverified). A missed or wrong
-  company name means a history entry logs as "Unknown company" or the
-  duplicate warning doesn't fire; it never blocks filling.
+- File-upload fields can't be set by any extension — the popup lists which
+  it skipped.
+- The Claude API key is stored unencrypted in `chrome.storage.local`.
+- The LinkedIn adapter and company/title detection (`content/job-info.js`)
+  are unverified against live postings; a miss logs "Unknown company" or
+  suppresses the duplicate warning — it never blocks filling.
 
-## Testing without a real job site
+## Develop
 
-`test-page/sample-application.html` is a local fake application form. Open
-it directly in Chrome to try "Fill this page" risk-free.
-
-## Running the tests
-
-```
-npm install   # one-time, installs Jest + jsdom as devDependencies
-npm test
+```bash
+npm install
+npm test        # 60 Jest tests, jsdom, global.fetch mocked — no network
 ```
 
-60 Jest tests cover `content/field-matcher.js`'s DOM heuristics, the
-LinkedIn adapter, `content/job-info.js`'s company/title/ATS detection,
-`lib/history-store.js`'s history logic, and `lib/claude-api.js`'s request
-shape and error handling (with `global.fetch` mocked — no real network
-calls run in tests). Runs against jsdom (see `test/jest.setup.js` for the
-polyfills and the in-memory `chrome.storage.local` mock that requires) via
-a Babel-transformed Jest setup (`babel.config.js`, dev-only — it doesn't
-touch how the extension runs in Chrome). This is dev-only tooling — the
-extension itself has no build step and no runtime dependencies.
+Tests cover `field-matcher.js`'s heuristics, the LinkedIn adapter,
+`job-info.js`'s company/title/ATS detection, `history-store.js`, and
+`claude-api.js`'s request shape + error handling. `test-page/sample-application.html`
+is a local fake form for trying **Fill this page** risk-free. Babel/Jest
+are dev-only — the extension itself has no build step.
